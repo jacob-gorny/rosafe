@@ -1,0 +1,877 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rosafe: score viewer</title>
+<meta name="description" content="The model's predicted danger score for 850 Dallas-Fort Worth roads, day by day, on an offline map.">
+<!--
+  Score viewer. Built by notebook/make_viewer.py, which pastes data/roads.geojson and data/scores_YYYY.json into
+  the script tag at the bottom. No server, no internet, no libraries: open the file in a browser.
+  This is a window onto the model's output files, not the iPhone app (the app reads the same files).
+-->
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7; --surface: #fcfcfb; --raised: #ffffff;
+    --text: #0b0b0b; --text2: #52514e; --muted: #6f6e69;
+    --hair: #e1e0d9; --axis: #c3c2b7; --border: rgba(11, 11, 11, 0.10); --wash: rgba(11, 11, 11, 0.045);
+    --accent: #2a78d6; --chip: #f0efec;
+    /* danger score: 0.7, 0.85, 1.0, 1.5, 2.0 (blue = fewer crashes than normal, gray = normal, red = more) */
+    --s0: #184f95; --s1: #2a78d6; --s2: #cfcec8; --s3: #e34948; --s4: #a8262a;
+    --warn-bg: #fdf3dc; --warn-ink: #5e4200; --warn-line: #eda100;
+    --shadow: 0 1px 2px rgba(11, 11, 11, 0.05), 0 6px 20px rgba(11, 11, 11, 0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19; --raised: #232322;
+      --text: #f0efec; --text2: #c3c2b7; --muted: #a09f96;
+      --hair: #2c2c2a; --axis: #3d3d3a; --border: rgba(255, 255, 255, 0.10); --wash: rgba(255, 255, 255, 0.06);
+      --accent: #3987e5; --chip: #2a2a28;
+      --s0: #6da7ec; --s1: #2f6fc0; --s2: #55544f; --s3: #c94141; --s4: #ff7a73;
+      --warn-bg: #33290f; --warn-ink: #f3d68f; --warn-line: #c98500;
+      --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --raised: #232322;
+    --text: #f0efec; --text2: #c3c2b7; --muted: #a09f96;
+    --hair: #2c2c2a; --axis: #3d3d3a; --border: rgba(255, 255, 255, 0.10); --wash: rgba(255, 255, 255, 0.06);
+    --accent: #3987e5; --chip: #2a2a28;
+    --s0: #6da7ec; --s1: #2f6fc0; --s2: #55544f; --s3: #c94141; --s4: #ff7a73;
+    --warn-bg: #33290f; --warn-ink: #f3d68f; --warn-line: #c98500;
+    --shadow: none;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--page); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  a { color: var(--accent); }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 20px 16px 48px; }
+
+  header.top { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; }
+  h1 { font-size: 20px; line-height: 1.25; margin: 0 0 4px; font-weight: 650; letter-spacing: -0.01em; }
+  .lede { margin: 0; color: var(--text2); max-width: 78ch; }
+  .tag {
+    display: inline-block; font-size: 12px; line-height: 18px; padding: 0 8px; border-radius: 999px;
+    background: var(--chip); color: var(--text2); white-space: nowrap;
+  }
+
+  .btn {
+    background: var(--raised); border: 1px solid var(--border); border-radius: 8px;
+    padding: 5px 10px; cursor: pointer; line-height: 20px;
+  }
+  .btn:hover { background: linear-gradient(var(--wash), var(--wash)), var(--raised); }
+  .btn:focus-visible, .chip:focus-visible, .row:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  #theme { white-space: nowrap; flex: none; }
+  .btn.icon { width: 32px; height: 32px; padding: 0; font-size: 18px; line-height: 30px; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 14px 0 6px; }
+  .controls .grow { flex: 1 1 220px; min-width: 160px; }
+  .controls input[type="date"], .controls select, .controls input[type="search"] {
+    background: var(--raised); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; height: 32px;
+  }
+  .controls input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .picks { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; align-items: center; }
+  .picks .lbl { color: var(--text2); font-size: 13px; margin-right: 2px; }
+  .chip {
+    border: 1px solid var(--border); background: var(--raised); border-radius: 999px; padding: 3px 10px;
+    font-size: 13px; cursor: pointer;
+  }
+  .chip:hover { background: linear-gradient(var(--wash), var(--wash)), var(--raised); }
+  .chip[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .layers { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--text2); font-size: 13px; }
+  .layers label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  .layers input { accent-color: var(--accent); }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 16px; align-items: start; }
+  @media (max-width: 960px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+  .pad { padding: 14px 16px; }
+
+  .mapcard { position: relative; height: min(76vh, 800px); min-height: 440px; overflow: hidden; }
+  @media (max-width: 960px) { .mapcard { height: 62vh; min-height: 360px; } }
+  #map { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; user-select: none; }
+  #map.dragging { cursor: grabbing; }
+  #map path { fill: none; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  #map .road.city { stroke-width: 1.25px; }
+  #map .road.state, #map .road.toll { stroke-width: 2.1px; }
+  #map .ring { stroke: var(--surface); stroke-width: 6.5px; }
+  #map .flagline { stroke-width: 3.4px; }
+  #map .hl-ring { stroke: var(--text); stroke-width: 7.5px; }
+  #map .hl-line { stroke-width: 3.6px; }
+  #map .hit { stroke: transparent; stroke-width: 14px; pointer-events: stroke; cursor: pointer; }
+  #map .hidden { display: none; }
+  #map .place circle { fill: var(--muted); }
+  #map .place text { fill: var(--text2); paint-order: stroke; stroke: var(--surface); stroke-linejoin: round; }
+
+  .mapui { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .legend {
+    position: absolute; left: 10px; bottom: 10px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 8px 10px 6px; width: min(330px, calc(100% - 20px)); font-size: 12px; color: var(--text2);
+  }
+  .legend .bar { height: 10px; border-radius: 3px; margin: 4px 0 2px; }
+  .legend .ticks { position: relative; height: 16px; font-variant-numeric: tabular-nums; }
+  .legend .ticks span { position: absolute; transform: translateX(-50%); top: 0; }
+  .legend .ticks span:first-child { transform: none; }
+  .legend .ticks span:last-child { transform: translateX(-100%); }
+  .legend .ends { display: flex; justify-content: space-between; color: var(--muted); }
+  .legend .flagkey { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .legend svg { flex: none; }
+  .hint { position: absolute; right: 10px; bottom: 10px; font-size: 12px; color: var(--muted); }
+  @media (max-width: 640px) {
+    .hint { display: none; }
+    .legend { width: 210px; font-size: 11px; padding: 6px 8px 4px; }
+    .legend .ends, .legend > div:first-child { display: none; }
+  }
+
+  .tip {
+    position: absolute; pointer-events: none; z-index: 5; min-width: 180px; max-width: 280px;
+    background: var(--raised); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14); font-size: 13px; display: none;
+  }
+  .tip .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .tip .vs { color: var(--text2); margin-bottom: 6px; }
+  .tip .nm { font-weight: 600; }
+  .tip .meta { color: var(--text2); font-size: 12px; }
+  .tip .flag { margin-top: 4px; font-size: 12px; font-weight: 600; }
+
+  .panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .dayname { font-size: 17px; font-weight: 650; margin: 0 0 2px; }
+  .wx { color: var(--text2); margin: 0; }
+  .reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .warn {
+    margin-top: 10px; background: var(--warn-bg); color: var(--warn-ink); border-left: 3px solid var(--warn-line);
+    padding: 6px 10px; border-radius: 6px; font-size: 13px;
+  }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+  .stat { background: var(--chip); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+  .stat .k { color: var(--text2); font-size: 12px; }
+  .stat .n { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .stat .s { color: var(--text2); font-size: 12px; }
+
+  .sec-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 6px; }
+  .sec-h h2 { font-size: 14px; margin: 0; font-weight: 650; }
+  .sec-h .sub { color: var(--text2); font-size: 12px; }
+  .linkbtn { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; font-size: 13px; }
+  .note { color: var(--text2); font-size: 12px; margin: 6px 0 0; }
+
+  .list { max-height: 330px; overflow: auto; margin: 0 -6px; padding: 0 6px; }
+  .row {
+    width: 100%; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; align-items: center;
+    background: none; border: 0; border-radius: 8px; padding: 5px 6px; text-align: left; cursor: pointer;
+  }
+  .row:hover { background: var(--wash); }
+  .row[aria-current="true"] { background: var(--chip); }
+  .row .rk { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+  .row .nm { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .meta { color: var(--text2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .val { font-variant-numeric: tabular-nums; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .key { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+
+  .selname { font-size: 16px; font-weight: 650; }
+  .selmeta { color: var(--text2); font-size: 12px; margin-top: 2px; }
+  .selnow { display: flex; align-items: baseline; gap: 10px; margin: 8px 0 2px; flex-wrap: wrap; }
+  .selnow .v { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .selnow .vs { color: var(--text2); }
+  .spark { position: relative; margin-top: 6px; }
+  .spark svg { width: 100%; height: 104px; display: block; cursor: crosshair; }
+  .spark .readout { font-size: 12px; color: var(--text2); height: 18px; font-variant-numeric: tabular-nums; }
+
+  table.truth { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.truth th { text-align: left; font-weight: 600; color: var(--text2); font-size: 12px; padding: 4px 6px 4px 0; border-bottom: 1px solid var(--hair); }
+  table.truth td { padding: 5px 6px 5px 0; border-bottom: 1px solid var(--hair); vertical-align: top; }
+  table.truth td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  table.truth tr:last-child td { border-bottom: 0; }
+  table.truth .rd { font-weight: 550; }
+  table.truth .meta-s { color: var(--text2); font-size: 12px; }
+
+  footer { margin-top: 18px; color: var(--text2); font-size: 13px; display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  footer h3 { color: var(--text); font-size: 13px; margin: 0 0 4px; }
+  footer p { margin: 0; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Rosafe <span class="tag" id="year-tag"></span></h1>
+      <p class="lede">The model's danger score for 850 Dallas-Fort Worth roads, one day at a time. 1.00 is a normal day
+        for that road; 1.40 means 40% more crashes than normal. This page is a window onto the model's output files.
+        It is not the iPhone app, which reads the same files.</p>
+    </div>
+    <button class="btn" id="theme" type="button" title="Switch between automatic, light and dark">Theme: auto</button>
+  </header>
+
+  <div class="controls" role="group" aria-label="Choose a day">
+    <select id="year" aria-label="Year"></select>
+    <button class="btn icon" id="prev" type="button" aria-label="Previous day" title="Previous day (left arrow)">&#8249;</button>
+    <input type="date" id="date" aria-label="Date">
+    <button class="btn icon" id="next" type="button" aria-label="Next day" title="Next day (right arrow)">&#8250;</button>
+    <div class="grow"><input type="range" id="slider" min="0" max="364" value="0" aria-label="Day of the year"></div>
+    <input type="search" id="find" list="road-names" placeholder="Find a road" aria-label="Find a road" autocomplete="off">
+    <datalist id="road-names"></datalist>
+  </div>
+  <div class="picks" id="picks"><span class="lbl">Jump to:</span></div>
+
+  <div class="layout">
+    <div class="card mapcard" id="mapcard">
+      <svg id="map" role="img" aria-labelledby="map-title map-desc" preserveAspectRatio="xMidYMid meet">
+        <title id="map-title">Map of 850 DFW roads coloured by today's predicted danger score</title>
+        <desc id="map-desc">Blue roads are expected to have fewer crashes than normal, gray about normal, red more than normal.
+          Thick outlined roads are flagged by the alert rule. The lists beside the map give the same information as text.</desc>
+        <g id="g-roads"></g>
+        <g id="g-flag"></g>
+        <g id="g-hl"></g>
+        <g id="g-places"></g>
+        <g id="g-hit"></g>
+      </svg>
+      <div class="mapui">
+        <button class="btn icon" id="zin" type="button" aria-label="Zoom in">+</button>
+        <button class="btn icon" id="zout" type="button" aria-label="Zoom out">&#8722;</button>
+        <button class="btn icon" id="zhome" type="button" aria-label="Show all of DFW" title="Show all of DFW">&#8962;</button>
+      </div>
+      <div class="legend" aria-hidden="true">
+        <div>Predicted danger score (crashes ÷ that road's normal)</div>
+        <div class="bar" id="legend-bar"></div>
+        <div class="ticks"><span style="left:0">0.7</span><span style="left:23.08%">1.0</span><span style="left:61.54%">1.5</span><span style="left:100%">2.0+</span></div>
+        <div class="ends"><span>fewer crashes</span><span>more crashes</span></div>
+        <div class="flagkey">
+          <svg width="34" height="10" viewBox="0 0 34 10"><path d="M2 5 L32 5" stroke="var(--surface)" stroke-width="7" stroke-linecap="round"/><path id="legend-flag" d="M2 5 L32 5" stroke-width="3.4" stroke-linecap="round"/></svg>
+          <span>Thick line: flagged by the alert rule</span>
+        </div>
+      </div>
+      <div class="hint">Scroll or pinch to zoom · drag to move · click a road</div>
+      <div class="tip" id="tip" role="tooltip"></div>
+    </div>
+
+    <aside class="panel">
+      <section class="card pad">
+        <p class="dayname" id="dayname" aria-live="polite"></p>
+        <p class="wx" id="wx"></p>
+        <div class="reasons" id="reasons"></div>
+        <div id="rare"></div>
+        <div class="stats">
+          <div class="stat"><div class="k">Roads flagged</div><div class="n" id="st-flag"></div><div class="s" id="st-flag-s"></div></div>
+          <div class="stat"><div class="k">Average score</div><div class="n" id="st-avg"></div><div class="s" id="st-avg-s"></div></div>
+        </div>
+      </section>
+
+      <section class="card pad" id="sel-card">
+        <div class="sec-h"><h2>Follow one road</h2><button class="linkbtn" id="sel-clear" type="button" hidden>Clear</button></div>
+        <div id="sel-body"><p class="note">Click a road on the map or in a list, or type its name in "Find a road",
+          to see its score through the whole year.</p></div>
+      </section>
+
+      <section class="card pad">
+        <div class="sec-h"><h2 id="flag-h">Flagged today</h2><span class="sub" id="flag-sub"></span></div>
+        <div class="list" id="flag-list"></div>
+        <p class="note">Flagged = score at least <span id="thr"></span> (the top 10% of the model's training-year
+          predictions) and among the worst 15% of roads that day, on days with rain or ice only. These are the roads
+          the app warns about.</p>
+      </section>
+
+      <section class="card pad" id="truth-card">
+        <div class="sec-h"><h2>What really happened</h2><span class="sub">the 5 busiest roads</span></div>
+        <table class="truth" id="truth"></table>
+        <p class="note">Real outcomes are shown only for the roads that average 8 or more crashes a day, and only as a
+          level, never a count, so no one can work out a day's crashes from this page (TxDOT's terms).</p>
+      </section>
+    </aside>
+  </div>
+
+  <footer>
+    <div>
+      <h3>How the score is made</h3>
+      <p>A gradient-boosting model reads the weather that day and over the weeks before it, plus how each road is built.
+        It predicts each road's crashes and divides by the road's normal for that weekday. It never sees the crashes of
+        the day it scores. <span id="year-note"></span></p>
+    </div>
+    <div>
+      <h3>Limits</h3>
+      <p>Scores are per day, not per hour. They use the weather that was measured that day; a live app would use a
+        forecast (in our tests, with only the day before's weather the simpler model's edge almost vanished, so a live version needs a good forecast of today's rain).
+        In 2023 most of the edge came from whether it rained; in 2024 the weather beyond rain added a real gain too. City streets and toll roads have no surface, lanes or traffic
+        data, so they're scored from road class, speed limit and their own crash history. The app alerts only on days
+        with rain or ice; on dry days the model's flags were much weaker, so they're left out. Map lines are averages
+        of at least 5 crash positions, so they're approximate.</p>
+    </div>
+    <div>
+      <h3>Sources</h3>
+      <p>Crash data: Texas Department of Transportation, Crash Records Information System (CRIS), 2020 to 2024, through
+        TxDOT's public map layer. This page holds model scores and averaged road shapes, not crash records. Weather:
+        NOAA GHCN-Daily, DFW Airport station (USW00003927).</p>
+    </div>
+  </footer>
+</div>
+
+<script type="application/json" id="viewer-data">/*__VIEWER_DATA__*/</script>
+<script>
+(function () {
+  "use strict";
+
+  // ---------- Data ----------
+  const DATA = JSON.parse(document.getElementById("viewer-data").textContent);
+  const ROADS = DATA.roads.features;
+  const N = ROADS.length;
+  const YEARS = Object.keys(DATA.years).sort();
+  const LEVEL_EDGES = [0.85, 1.15, 1.4, 1.8];                      // same edges as the notebook and the data contract
+  // The demo day: the first rain (5 mm or more) after 7+ dry days with the highest average score, the rule the
+  // notebook uses (step 12 for 2023, step 14 for 2024). For 2023 it is Dec 15, the day data/routes.gpx was built on.
+  const YEAR_NOTE = {
+    "2023": "2023 is the practice year: the model was trained on 2021 and 2022 and never saw 2023.",
+    "2024": "2024 is the final test year: the model was trained on 2021 to 2023 and scored 2024 once."
+  };
+  const LAYER_NAME = { state: "State highway", toll: "Toll road", city: "City street" };
+  const LAYER_Z = { city: 0, state: 1, toll: 2 };
+  const SURFACE_NAME = { concrete: "concrete", asphalt: "asphalt", asphalt_over_concrete: "asphalt over concrete",
+                         surface_treated: "seal coat" };
+  const CLASS_NAME = { interstate: "interstate", us_state_highway: "US or state highway", farm_to_market: "farm-to-market road",
+                       city_street: "city street", county_road: "county road", tollway: "tollway" };
+  const PLACES = [["Dallas", 32.7767, -96.797], ["Fort Worth", 32.7555, -97.3308], ["Arlington", 32.7357, -97.1081],
+                  ["Plano", 33.0198, -96.6989], ["Denton", 33.2148, -97.1331], ["McKinney", 33.1972, -96.6398],
+                  ["DFW Airport", 32.8998, -97.0403], ["Waxahachie", 32.3866, -96.8483], ["Weatherford", 32.7593, -97.7973]];
+
+  const $ = (id) => document.getElementById(id);
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const svgEl = (tag, attrs) => { const e = document.createElementNS(SVG_NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const mean = (a) => a.reduce((s, v) => s + v, 0) / a.length;
+  const argmax = (arr, f) => { let best = -1, bv = -Infinity; arr.forEach((x, k) => { const v = f(x); if (v > bv) { bv = v; best = k; } }); return best; };
+
+  // ---------- Names ----------
+  const P = ROADS.map((f) => f.properties);
+  const label = P.map((p) => p.display_name + (p.layer === "state" && p.surface ? " · " + SURFACE_NAME[p.surface] : ""));
+  (function disambiguate() {                                       // same street name in several cities: number them west to east
+    const groups = new Map();
+    label.forEach((l, i) => { if (!groups.has(l)) groups.set(l, []); groups.get(l).push(i); });
+    for (const [l, ids] of groups) {
+      if (ids.length < 2) continue;
+      ids.sort((a, b) => centroid(a)[0] - centroid(b)[0]);
+      ids.forEach((i, k) => { label[i] = l + " (" + (k + 1) + " of " + ids.length + ", west to east)"; });
+    }
+  })();
+  function centroid(i) {
+    let sx = 0, sy = 0, n = 0;
+    for (const line of ROADS[i].geometry.coordinates) for (const c of line) { sx += c[0]; sy += c[1]; n++; }
+    return [sx / n, sy / n];
+  }
+  function metaLine(i, long) {
+    const p = P[i];
+    const kind = p.layer === "city" ? (p.road_class === "county_road" ? "County road" : "City street") : LAYER_NAME[p.layer];
+    const bits = [kind];                                          // the surface is already in the road's label
+    if (long && p.road_class && p.layer === "state") bits.push(CLASS_NAME[p.road_class] || p.road_class);
+    if (p.speed_limit) bits.push(p.speed_limit + " mph");
+    if (long && p.lanes) bits.push(p.lanes + " lanes");
+    if (long && p.daily_traffic) bits.push(p.daily_traffic.toLocaleString("en-US") + " vehicles a day");
+    bits.push(p.checked === "measured" ? "measured" : "estimated");
+    return bits.join(" · ");
+  }
+
+  // ---------- Score words ----------
+  const LEVEL_NAMES = DATA.years[YEARS[0]].actual_level_names;
+  const levelOf = (v) => LEVEL_EDGES.filter((e) => v >= e).length;
+  function versus(v) {
+    const d = Math.round((v - 1) * 100);
+    if (d === 0) return "a normal day";
+    return d > 0 ? d + "% more crashes than normal" : (-d) + "% fewer crashes than normal";
+  }
+  function signed(v) {
+    const d = Math.round((v - 1) * 100);
+    return d === 0 ? "±0%" : d > 0 ? "+" + d + "%" : "−" + (-d) + "%";
+  }
+  const longDate = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  const shortDate = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  // ---------- Colour ----------
+  let STOPS = [];
+  const STOP_AT = [0.7, 0.85, 1.0, 1.5, 2.0];
+  function readStops() {
+    const cs = getComputedStyle(document.documentElement);
+    STOPS = ["--s0", "--s1", "--s2", "--s3", "--s4"].map((v) => hexRgb(cs.getPropertyValue(v).trim()));
+    const pos = STOP_AT.map((v) => ((v - 0.7) / 1.3 * 100).toFixed(2) + "%");
+    $("legend-bar").style.background = "linear-gradient(90deg, " + STOPS.map((c, k) => rgb(c) + " " + pos[k]).join(", ") + ")";
+    $("legend-flag").setAttribute("stroke", colorFor(1.6));
+  }
+  function hexRgb(h) { h = h.replace("#", ""); if (h.length === 3) h = h.split("").map((c) => c + c).join(""); return [0, 2, 4].map((k) => parseInt(h.slice(k, k + 2), 16)); }
+  const rgb = (c) => "rgb(" + c.map((x) => Math.round(x)).join(",") + ")";
+  function colorFor(v) {                                          // piecewise-linear between the five stops, like the notebook's figures
+    v = clamp(v, 0.7, 2.0);
+    let k = 0;
+    while (k < 3 && v > STOP_AT[k + 1]) k++;
+    const t = (v - STOP_AT[k]) / (STOP_AT[k + 1] - STOP_AT[k]);
+    return rgb(STOPS[k].map((a, n) => a + (STOPS[k + 1][n] - a) * t));
+  }
+
+  // ---------- Map geometry ----------
+  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
+  for (const f of ROADS) for (const line of f.geometry.coordinates) for (const c of line) {
+    if (c[0] < minLon) minLon = c[0]; if (c[0] > maxLon) maxLon = c[0];
+    if (c[1] < minLat) minLat = c[1]; if (c[1] > maxLat) maxLat = c[1];
+  }
+  const KX = Math.cos(((minLat + maxLat) / 2) * Math.PI / 180), K = 1000;   // simple equirectangular projection, fine at city scale
+  const X = (lon) => (lon - minLon) * KX * K, Y = (lat) => (maxLat - lat) * K;
+  const W = X(maxLon), H = Y(minLat), PAD = 24;
+  const HOME = { x: -PAD, y: -PAD, w: W + 2 * PAD, h: H + 2 * PAD };
+  const D = ROADS.map((f) => f.geometry.coordinates.map((line) => "M" + line.map((c) => X(c[0]).toFixed(1) + "," + Y(c[1]).toFixed(1)).join("L")).join(""));
+
+  const svg = $("map"), gRoads = $("g-roads"), gFlag = $("g-flag"), gHl = $("g-hl"), gHit = $("g-hit"), gPlaces = $("g-places");
+  const vis = new Array(N), hit = new Array(N);
+  ROADS.map((f, i) => i).sort((a, b) => LAYER_Z[P[a].layer] - LAYER_Z[P[b].layer]).forEach((i) => {
+    vis[i] = svgEl("path", { d: D[i], class: "road " + P[i].layer });
+    hit[i] = svgEl("path", { d: D[i], class: "hit", "data-i": i });
+    gRoads.appendChild(vis[i]); gHit.appendChild(hit[i]);
+  });
+  const placeEls = PLACES.map(([name, lat, lon]) => {
+    const g = svgEl("g", { class: "place" });
+    const c = svgEl("circle", { cx: X(lon), cy: Y(lat), r: 2.5 });
+    const t = svgEl("text", { x: X(lon), y: Y(lat) });
+    t.textContent = name;
+    g.appendChild(c); g.appendChild(t); gPlaces.appendChild(g);
+    return { c, t, x: X(lon), y: Y(lat) };
+  });
+
+  // ---------- State ----------
+  let year = YEARS[YEARS.length - 1], dayIdx = 0, selected = -1, hover = -1;
+  const layerOn = { state: true, toll: true, city: true };
+  let vb = Object.assign({}, HOME);
+  const yearCache = {};
+  function yearInfo(y) {                                                // per-year lookups: road -> column, date -> day, flagged sets
+    if (yearCache[y]) return yearCache[y];
+    const s = DATA.years[y], col = new Int32Array(N).fill(-1), idx = new Map(P.map((p, i) => [p.id, i]));
+    s.road_ids.forEach((id, j) => { const i = idx.get(id); if (i !== undefined) col[i] = j; });
+    const roadOf = s.road_ids.map((id) => idx.get(id));
+    const byDate = new Map(s.days.map((d, k) => [d.date, k]));
+    const flagged = s.days.map((d) => new Set(d.alert));
+    return (yearCache[y] = { s, col, roadOf, byDate, flagged });
+  }
+  const predOf = (i, k) => { const c = yearInfo(year), j = c.col[i]; return j < 0 ? null : c.s.days[k].pred[j]; };
+  const isFlagged = (i, k) => { const c = yearInfo(year), j = c.col[i]; return j >= 0 && c.flagged[k].has(j); };
+
+  // ---------- Rendering ----------
+  function render() {
+    const c = yearInfo(year), day = c.s.days[dayIdx];
+    for (let i = 0; i < N; i++) {
+      const v = predOf(i, dayIdx), on = layerOn[P[i].layer];
+      vis[i].style.stroke = v == null ? rgb(STOPS[2]) : colorFor(v);
+      vis[i].classList.toggle("hidden", !on);
+      hit[i].classList.toggle("hidden", !on);
+    }
+    const flagged = day.alert.map((j) => c.roadOf[j]).filter((i) => i !== undefined && layerOn[P[i].layer])
+      .sort((a, b) => predOf(a, dayIdx) - predOf(b, dayIdx));
+    gFlag.textContent = "";
+    const rings = document.createDocumentFragment(), lines = document.createDocumentFragment();
+    for (const i of flagged) {
+      rings.appendChild(svgEl("path", { d: D[i], class: "ring" }));
+      const l = svgEl("path", { d: D[i], class: "flagline" }); l.style.stroke = colorFor(predOf(i, dayIdx)); lines.appendChild(l);
+    }
+    gFlag.appendChild(rings); gFlag.appendChild(lines);
+    drawHighlight();
+    renderPanel(day, flagged.slice().reverse());
+  }
+
+  function drawHighlight() {
+    gHl.textContent = "";
+    for (const i of [selected, hover]) {
+      if (i < 0 || !layerOn[P[i].layer]) continue;
+      gHl.appendChild(svgEl("path", { d: D[i], class: "hl-ring" }));
+      const l = svgEl("path", { d: D[i], class: "hl-line" }); const v = predOf(i, dayIdx);
+      l.style.stroke = v == null ? rgb(STOPS[2]) : colorFor(v); gHl.appendChild(l);
+    }
+  }
+
+  function renderPanel(day, flaggedDesc) {
+    const w = day.weather;
+    $("dayname").textContent = longDate(day.date);
+    const parts = [];
+    if (w.rain_mm >= 0.3) parts.push(w.rain_mm.toFixed(1) + " mm of rain (" + (w.rain_mm / 25.4).toFixed(2) + " in)");
+    else parts.push("No rain" + (w.days_since_rain ? ", last rain " + w.days_since_rain + (w.days_since_rain === 1 ? " day" : " days") + " ago" : ""));
+    parts.push("high " + w.high_f + " °F, low " + w.low_f + " °F");
+    $("wx").textContent = parts.join(" · ");
+    const rs = $("reasons"); rs.textContent = "";
+    (day.reasons.length ? day.reasons : ["Nothing unusual in the weather"]).forEach((r) => rs.appendChild(el("span", "tag", r)));
+    const rare = $("rare"); rare.textContent = "";
+    if (day.rare) rare.appendChild(el("div", "warn", "Rare conditions (ice). The model has seen only a few days like this, so treat today's scores as rough."));
+
+    const shown = P.map((p, i) => i).filter((i) => layerOn[P[i].layer] && predOf(i, dayIdx) != null);
+    $("st-flag").textContent = flaggedDesc.length;
+    $("st-flag-s").textContent = "of " + shown.length + " roads shown";
+    const avg = shown.length ? mean(shown.map((i) => predOf(i, dayIdx))) : 1;
+    $("st-avg").textContent = avg.toFixed(2);
+    $("st-avg-s").textContent = versus(avg);
+
+    // flagged list (or the top scores on a quiet day)
+    const list = $("flag-list"); list.textContent = "";
+    let rows = flaggedDesc;
+    if (!rows.length) {
+      $("flag-h").textContent = "No road flagged today";
+      $("flag-sub").textContent = "highest scores instead";
+      rows = shown.slice().sort((a, b) => predOf(b, dayIdx) - predOf(a, dayIdx)).slice(0, 8);
+    } else {
+      $("flag-h").textContent = "Flagged today";
+      $("flag-sub").textContent = flaggedDesc.length + (flaggedDesc.length === 1 ? " road" : " roads") + ", worst first";
+    }
+    rows.forEach((i, k) => list.appendChild(roadRow(i, k + 1)));
+    $("thr").textContent = yearInfo(year).s.alert_threshold.toFixed(2);
+
+    // truth table for the busiest roads
+    const t = $("truth"); t.textContent = "";
+    const lv = day.actual_level || {};
+    const ids = Object.keys(lv);
+    $("truth-card").hidden = !ids.length;
+    if (ids.length) {
+      const head = el("tr"); ["Road", "Model said", "What happened"].forEach((h) => head.appendChild(el("th", null, h))); t.appendChild(head);
+      const idx = new Map(P.map((p, i) => [p.id, i]));
+      ids.map((id) => idx.get(id)).filter((i) => i !== undefined).sort((a, b) => predOf(b, dayIdx) - predOf(a, dayIdx)).forEach((i) => {
+        const v = predOf(i, dayIdx), a = lv[P[i].id], m = levelOf(v);
+        const tr = el("tr");
+        const td0 = el("td"); td0.appendChild(el("div", "rd", label[i])); tr.appendChild(td0);
+        tr.appendChild(el("td", "num", LEVEL_NAMES[m] + " (" + v.toFixed(2) + ")"));
+        const td2 = el("td");
+        td2.appendChild(el("div", null, LEVEL_NAMES[a]));
+        const gap = Math.abs(a - m);
+        td2.appendChild(el("div", "meta-s", gap === 0 ? "✓ same level" : gap === 1 ? "one level off" : gap + " levels off"));
+        tr.appendChild(td2);
+        t.appendChild(tr);
+      });
+    }
+    renderSelected();
+  }
+
+  function roadRow(i, rank) {
+    const v = predOf(i, dayIdx);
+    const b = el("button", "row"); b.type = "button";
+    if (i === selected) b.setAttribute("aria-current", "true");
+    b.appendChild(el("span", "rk", rank));
+    const mid = el("span"); mid.style.minWidth = "0";
+    mid.appendChild(el("div", "nm", label[i])); mid.appendChild(el("div", "meta", metaLine(i, false)));
+    b.appendChild(mid);
+    const val = el("span", "val"); const key = el("span", "key"); key.style.background = colorFor(v);
+    val.appendChild(key); val.appendChild(el("span", null, v.toFixed(2)));
+    b.appendChild(val);
+    b.title = label[i] + ": " + v.toFixed(2) + ", " + versus(v);
+    b.addEventListener("click", () => { selectRoad(i); zoomToRoad(i); });
+    return b;
+  }
+
+  // ---------- One road through the year ----------
+  function renderSelected() {
+    const body = $("sel-body");
+    $("sel-clear").hidden = selected < 0;
+    if (selected < 0) return;
+    const i = selected, v = predOf(i, dayIdx);
+    body.textContent = "";
+    body.appendChild(el("div", "selname", label[i]));
+    body.appendChild(el("div", "selmeta", metaLine(i, true)));
+    const now = el("div", "selnow");
+    now.appendChild(el("span", "v", v == null ? "–" : v.toFixed(2)));
+    now.appendChild(el("span", "vs", v == null ? "no score" : versus(v)));
+    now.appendChild(el("span", "tag", isFlagged(i, dayIdx) ? "flagged today" : "not flagged"));
+    body.appendChild(now);
+    const spark = el("div", "spark");
+    const readout = el("div", "readout", "Through " + year + ". Hover to read a day, click to jump to it.");
+    spark.appendChild(readout);
+    const s = svgEl("svg", { role: "img", "aria-label": "Score of " + label[i] + " on every day of " + year });
+    spark.appendChild(s);
+    spark.appendChild(el("div", "note", "Dashed line: a normal day (1.0). Red ticks: days this road was flagged."));
+    body.appendChild(spark);
+    body.appendChild(el("p", "note", P[i].checked === "measured"
+      ? "Measured: busy enough that its score was tested on its own."
+      : "Estimated: too quiet to test on its own, so it's scored from roads built like it and tested in a group."));
+    requestAnimationFrame(() => drawSpark(s, readout, i));
+  }
+
+  function drawSpark(s, readout, i) {
+    const days = yearInfo(year).s.days, n = days.length;
+    const vals = days.map((d, k) => predOf(i, k));
+    const w = Math.max(240, s.clientWidth || 320), h = 104, L = 30, R = 6, T = 6, B = 30;
+    s.setAttribute("viewBox", "0 0 " + w + " " + h);
+    const known = vals.filter((v) => v != null);
+    const lo = Math.min(0.6, ...known), hi = Math.max(1.6, ...known);
+    const x = (k) => L + k * (w - L - R) / (n - 1), y = (v) => T + (hi - v) * (h - T - B) / (hi - lo);
+    const css = getComputedStyle(document.documentElement);
+    const ink = css.getPropertyValue("--text").trim(), hair = css.getPropertyValue("--axis").trim(), muted = css.getPropertyValue("--muted").trim();
+    s.appendChild(svgEl("line", { x1: L, x2: w - R, y1: y(1), y2: y(1), stroke: hair, "stroke-dasharray": "3 3" }));
+    [[1, "1.0"], [hi, hi.toFixed(1)]].forEach(([v, t]) => {
+      const tx = svgEl("text", { x: L - 4, y: y(v) + 3.5, "text-anchor": "end", "font-size": 10, fill: muted }); tx.textContent = t; s.appendChild(tx);
+    });
+    days.forEach((d, k) => {                                      // month initials along the bottom
+      if (d.date.slice(8) !== "01") return;
+      const tx = svgEl("text", { x: x(k) + 1, y: h - 4, "font-size": 10, fill: muted }); tx.textContent = "JFMAMJJASOND"[+d.date.slice(5, 7) - 1]; s.appendChild(tx);
+    });
+    const flagColor = colorFor(1.6);
+    days.forEach((d, k) => { if (isFlagged(i, k)) s.appendChild(svgEl("line", { x1: x(k), x2: x(k), y1: h - B + 3, y2: h - B + 11, stroke: flagColor, "stroke-width": 1.5 })); });
+    s.appendChild(svgEl("path", { d: "M" + vals.map((v, k) => x(k).toFixed(1) + "," + y(v == null ? 1 : v).toFixed(1)).join("L"), fill: "none", stroke: ink, "stroke-width": 1.5, "stroke-linejoin": "round" }));
+    const cur = svgEl("g", {});
+    const vline = svgEl("line", { y1: T, y2: h - B, stroke: muted, "stroke-width": 1 });
+    const dot = svgEl("circle", { r: 4, fill: ink, stroke: css.getPropertyValue("--surface").trim(), "stroke-width": 2 });
+    cur.appendChild(vline); cur.appendChild(dot); s.appendChild(cur);
+    const place = (k) => { vline.setAttribute("x1", x(k)); vline.setAttribute("x2", x(k)); dot.setAttribute("cx", x(k)); dot.setAttribute("cy", y(vals[k] == null ? 1 : vals[k])); };
+    place(dayIdx);
+    const kAt = (e) => { const r = s.getBoundingClientRect(); return clamp(Math.round(((e.clientX - r.left) / r.width * w - L) / ((w - L - R) / (n - 1))), 0, n - 1); };
+    s.addEventListener("pointermove", (e) => { const k = kAt(e); place(k); readout.textContent = shortDate(days[k].date) + ": " + vals[k].toFixed(2) + " (" + signed(vals[k]) + ")" + (isFlagged(i, k) ? ", flagged" : ""); });
+    s.addEventListener("pointerleave", () => { place(dayIdx); readout.textContent = "Through " + year + ". Hover to read a day, click to jump to it."; });
+    s.addEventListener("click", (e) => setDay(kAt(e)));
+  }
+
+  function selectRoad(i) {
+    selected = i;
+    if (i >= 0) $("find").value = "";
+    render(); writeHash();
+  }
+
+  // ---------- Tooltip ----------
+  const tip = $("tip"), card = $("mapcard");
+  function showTip(i, e) {
+    const v = predOf(i, dayIdx);
+    tip.textContent = "";
+    tip.appendChild(el("div", "v", v == null ? "–" : v.toFixed(2)));
+    tip.appendChild(el("div", "vs", v == null ? "no score" : versus(v)));
+    tip.appendChild(el("div", "nm", label[i]));
+    tip.appendChild(el("div", "meta", metaLine(i, false)));
+    if (isFlagged(i, dayIdx)) tip.appendChild(el("div", "flag", "Flagged today"));
+    tip.style.display = "block";
+    const r = card.getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
+    let x = e.clientX - r.left + 14, y = e.clientY - r.top + 14;
+    if (x + tw > r.width - 8) x = e.clientX - r.left - tw - 14;
+    if (y + th > r.height - 8) y = e.clientY - r.top - th - 14;
+    tip.style.left = Math.max(8, x) + "px"; tip.style.top = Math.max(8, y) + "px";
+    if (hover !== i) { hover = i; drawHighlight(); }
+  }
+  function hideTip() { tip.style.display = "none"; if (hover !== -1) { hover = -1; drawHighlight(); } }
+
+  // ---------- Zoom and pan ----------
+  function applyVB() {
+    svg.setAttribute("viewBox", vb.x + " " + vb.y + " " + vb.w + " " + vb.h);
+    const s = unitsPerPx(vb);
+    for (const p of placeEls) {
+      p.c.setAttribute("r", 2.6 * s);
+      p.t.setAttribute("x", p.x + 5 * s); p.t.setAttribute("y", p.y - 4 * s);
+      p.t.setAttribute("font-size", 11.5 * s); p.t.setAttribute("stroke-width", 3 * s);
+    }
+  }
+  function unitsPerPx(v) { const r = svg.getBoundingClientRect(); return Math.max(v.w / (r.width || 1), v.h / (r.height || 1)); }
+  function svgPoint(cx, cy) { const pt = svg.createSVGPoint(); pt.x = cx; pt.y = cy; return pt.matrixTransform(svg.getScreenCTM().inverse()); }
+  function zoomAt(cx, cy, factor) {
+    const p = svgPoint(cx, cy), f = clamp(vb.w * factor, HOME.w / 60, HOME.w * 1.5) / vb.w;
+    vb = { x: p.x - (p.x - vb.x) * f, y: p.y - (p.y - vb.y) * f, w: vb.w * f, h: vb.h * f };
+    applyVB();
+  }
+  function zoomCenter(factor) { const r = svg.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, factor); }
+  function zoomToRoad(i) {
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const line of ROADS[i].geometry.coordinates) for (const c of line) {
+      const x = X(c[0]), y = Y(c[1]); x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+    }
+    const r = svg.getBoundingClientRect(), aspect = (r.width || 1) / (r.height || 1);
+    let w = Math.max(x1 - x0, 140) * 1.6, h = Math.max(y1 - y0, 140) * 1.6;
+    if (w / h > aspect) h = w / aspect; else w = h * aspect;
+    vb = { x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - h / 2, w, h };
+    applyVB();
+  }
+  svg.addEventListener("wheel", (e) => { e.preventDefault(); zoomAt(e.clientX, e.clientY, Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0015))); }, { passive: false });
+  svg.addEventListener("dblclick", (e) => zoomAt(e.clientX, e.clientY, 0.5));
+  const pointers = new Map();
+  let drag = null, pinch = null, moved = false;
+  svg.addEventListener("pointerdown", (e) => {
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    svg.setPointerCapture(e.pointerId);
+    if (pointers.size === 1) { drag = { x: e.clientX, y: e.clientY, vb: Object.assign({}, vb), target: e.target }; moved = false; }
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, vb: Object.assign({}, vb), mid: svgPoint((a.x + b.x) / 2, (a.y + b.y) / 2) };
+      drag = null; moved = true;
+    }
+  });
+  svg.addEventListener("pointermove", (e) => {
+    if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && pointers.size >= 2) {
+      const [a, b] = [...pointers.values()];
+      const f = clamp(pinch.vb.w * pinch.d / (Math.hypot(a.x - b.x, a.y - b.y) || 1), HOME.w / 60, HOME.w * 1.5) / pinch.vb.w;
+      vb = { x: pinch.mid.x - (pinch.mid.x - pinch.vb.x) * f, y: pinch.mid.y - (pinch.mid.y - pinch.vb.y) * f, w: pinch.vb.w * f, h: pinch.vb.h * f };
+      applyVB(); hideTip(); return;
+    }
+    if (drag) {
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (!moved && Math.hypot(dx, dy) < 4) return;
+      moved = true; svg.classList.add("dragging"); hideTip();
+      const s = unitsPerPx(drag.vb);
+      vb = Object.assign({}, drag.vb, { x: drag.vb.x - dx * s, y: drag.vb.y - dy * s });
+      applyVB(); return;
+    }
+    if (e.pointerType !== "mouse") return;
+    const i = e.target && e.target.getAttribute ? e.target.getAttribute("data-i") : null;
+    if (i != null) showTip(+i, e); else hideTip();
+  });
+  function endPointer(e) {
+    pointers.delete(e.pointerId);
+    if (pinch) { if (pointers.size < 2) pinch = null; if (!pointers.size) drag = null; return; }
+    if (drag && !pointers.size) {
+      if (!moved) {
+        const i = drag.target && drag.target.getAttribute ? drag.target.getAttribute("data-i") : null;
+        if (i != null) { selectRoad(+i); if (e.pointerType !== "mouse") showTip(+i, e); } else hideTip();
+      }
+      drag = null; svg.classList.remove("dragging");
+    }
+  }
+  svg.addEventListener("pointerup", endPointer);
+  svg.addEventListener("pointercancel", endPointer);
+  svg.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse" && !drag) hideTip(); });
+  $("zin").addEventListener("click", () => zoomCenter(0.6));
+  $("zout").addEventListener("click", () => zoomCenter(1 / 0.6));
+  $("zhome").addEventListener("click", () => { vb = Object.assign({}, HOME); applyVB(); });
+  window.addEventListener("resize", () => applyVB());
+
+  // ---------- Day controls ----------
+  function setDay(k) {
+    const s = yearInfo(year).s;
+    dayIdx = clamp(k, 0, s.days.length - 1);
+    const d = s.days[dayIdx].date;
+    $("date").value = d; $("slider").value = dayIdx;
+    document.querySelectorAll("#picks .chip").forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.k === String(dayIdx))));
+    hideTip(); render(); writeHash();
+  }
+  function setYear(y, iso) {
+    year = y;
+    const s = yearInfo(year).s;
+    $("year").value = y;
+    $("year-tag").textContent = (y === "2024" ? "2024 final test" : y + " practice year") + " · Model " + s.model;
+    $("year-note").textContent = YEAR_NOTE[y] || "";
+    $("date").min = s.days[0].date; $("date").max = s.days[s.days.length - 1].date;
+    $("slider").max = s.days.length - 1;
+    buildPicks();
+    const dd = demoDay();
+    const k = iso && yearInfo(year).byDate.has(iso) ? yearInfo(year).byDate.get(iso) : Math.max(dd, 0);
+    setDay(k);
+  }
+  function demoDay() {
+    const days = yearInfo(year).s.days;
+    const first = (d) => d.weather.rain_mm >= 5 && d.weather.days_since_rain - 1 >= 7;
+    const k = argmax(days, (d) => (first(d) ? mean(d.pred) : -1));
+    return k >= 0 && first(days[k]) ? k : -1;
+  }
+  function buildPicks() {
+    const box = $("picks"), days = yearInfo(year).s.days;
+    box.querySelectorAll(".chip").forEach((c) => c.remove());
+    const picks = [];
+    const add = (lbl, k) => { if (k >= 0 && !picks.some((p) => p.k === k)) picks.push({ lbl, k }); };
+    const dd = demoDay();
+    if (dd >= 0) add("Demo day · " + shortDate(days[dd].date) + " (first rain after a dry spell)", dd);
+    const wet = argmax(days, (d) => d.weather.rain_mm);
+    add("Wettest day · " + shortDate(days[wet].date) + " (" + days[wet].weather.rain_mm.toFixed(1) + " mm)", wet);
+    const spell = argmax(days, (d) => (d.weather.rain_mm >= 0.3 ? d.weather.days_since_rain : -1));
+    add("Dry spell ends · " + shortDate(days[spell].date) + " (" + (days[spell].weather.days_since_rain - 1) + " dry days)", spell);
+    const ice = argmax(days, (d) => (d.rare ? mean(d.pred) : -1));
+    if (ice >= 0 && days[ice].rare) add("Ice · " + shortDate(days[ice].date), ice);
+    const hot = argmax(days, (d) => d.weather.high_f);
+    add("Hottest day · " + shortDate(days[hot].date) + " (" + days[hot].weather.high_f + " °F)", hot);
+    const calm = argmax(days, (d) => -mean(d.pred));
+    add("Calmest day · " + shortDate(days[calm].date), calm);
+    picks.forEach((p) => {
+      const b = el("button", "chip", p.lbl); b.type = "button"; b.dataset.k = p.k; b.setAttribute("aria-pressed", "false");
+      b.addEventListener("click", () => setDay(p.k));
+      box.appendChild(b);
+    });
+  }
+  $("prev").addEventListener("click", () => setDay(dayIdx - 1));
+  $("next").addEventListener("click", () => setDay(dayIdx + 1));
+  $("slider").addEventListener("input", (e) => setDay(+e.target.value));
+  $("date").addEventListener("change", (e) => { const k = yearInfo(year).byDate.get(e.target.value); if (k != null) setDay(k); });
+  $("year").addEventListener("change", (e) => setYear(e.target.value, $("date").value.replace(/^\d{4}/, e.target.value)));
+  document.addEventListener("keydown", (e) => {
+    const tag = (e.target && e.target.tagName) || "";
+    if (/INPUT|SELECT|TEXTAREA/.test(tag) || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === "ArrowLeft") { setDay(dayIdx - 1); e.preventDefault(); }
+    if (e.key === "ArrowRight") { setDay(dayIdx + 1); e.preventDefault(); }
+    if (e.key === "Escape") { hideTip(); }
+  });
+  $("sel-clear").addEventListener("click", () => {
+    selected = -1;
+    $("sel-body").textContent = "";
+    $("sel-body").appendChild(el("p", "note", "Click a road on the map or in a list, or type its name in \"Find a road\", to see its score through the whole year."));
+    render(); writeHash();
+  });
+
+  // road search
+  const names = $("road-names"), byLabel = new Map();
+  label.map((l, i) => [l, i]).sort((a, b) => a[0].localeCompare(b[0])).forEach(([l, i]) => {
+    byLabel.set(l.toLowerCase(), i);
+    const o = document.createElement("option"); o.value = l; names.appendChild(o);
+  });
+  function findRoad() {
+    const q = $("find").value.trim().toLowerCase();
+    if (!q) return;
+    let i = byLabel.get(q);
+    if (i == null) { for (const [l, k] of byLabel) if (l.startsWith(q)) { i = k; break; } }
+    if (i == null) { for (const [l, k] of byLabel) if (l.includes(q)) { i = k; break; } }
+    if (i != null) { selectRoad(i); zoomToRoad(i); }
+  }
+  $("find").addEventListener("change", findRoad);
+  $("find").addEventListener("keydown", (e) => { if (e.key === "Enter") findRoad(); });
+
+  // layer filters
+  const layerBox = el("div", "layers");
+  ["state", "toll", "city"].forEach((l) => {
+    const n = P.filter((p) => p.layer === l).length;
+    const lab = el("label"); const cb = el("input"); cb.type = "checkbox"; cb.checked = true;
+    cb.addEventListener("change", () => { layerOn[l] = cb.checked; render(); });
+    lab.appendChild(cb); lab.appendChild(document.createTextNode(LAYER_NAME[l] + "s (" + n + ")"));
+    layerBox.appendChild(lab);
+  });
+  $("picks").after(layerBox);
+  layerBox.style.margin = "-6px 0 12px";
+
+  // theme
+  const THEMES = ["auto", "light", "dark"];
+  let theme = "auto";
+  try { theme = localStorage.getItem("srdr-theme") || "auto"; } catch (err) { theme = "auto"; }
+  function applyTheme() {
+    if (theme === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme;
+    $("theme").textContent = "Theme: " + theme;
+    readStops(); render();
+  }
+  $("theme").addEventListener("click", () => {
+    theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+    try { localStorage.setItem("srdr-theme", theme); } catch (err) { /* private window: keep it for this visit only */ }
+    applyTheme();
+  });
+  if (window.matchMedia) window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { readStops(); render(); });
+
+  // deep links: #2023-12-15 or #2023-12-15/state-ih35e-asphalt_over_concrete
+  function writeHash() {
+    const d = yearInfo(year).s.days[dayIdx].date;
+    const h = "#" + d + (selected >= 0 ? "/" + P[selected].id : "");
+    try { if (location.hash !== h) history.replaceState(null, "", h); } catch (err) { /* some browsers block this on file:// pages */ }
+  }
+  function readHash() {
+    const m = /^#(\d{4})-(\d{2})-(\d{2})(?:\/(.+))?$/.exec(decodeURIComponent(location.hash || ""));
+    if (!m) return null;
+    return { y: m[1], iso: m[1] + "-" + m[2] + "-" + m[3], id: m[4] };
+  }
+
+  // ---------- Start ----------
+  YEARS.forEach((y) => { const o = document.createElement("option"); o.value = y; o.textContent = y; $("year").appendChild(o); });
+  if (YEARS.length < 2) $("year").hidden = true;
+  if (theme !== "auto") document.documentElement.dataset.theme = theme;
+  $("theme").textContent = "Theme: " + theme;
+  readStops();
+  applyVB();
+  const h = readHash();
+  if (h && h.id) { const i = P.findIndex((p) => p.id === h.id); if (i >= 0) selected = i; }
+  setYear(h && DATA.years[h.y] ? h.y : year, h ? h.iso : null);
+  if (selected >= 0) zoomToRoad(selected);
+})();
+</script>
+</body>
+</html>

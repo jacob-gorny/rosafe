@@ -1,0 +1,32 @@
+# Raw TxDOT crash data never goes in the repo (TxDOT terms: no passing the file on)
+dfw_crashes_*.csv
+dfw_crashes_*.csv.gz
+*.csv.gz
+notebook/raw/
+
+# Secrets and signing files
+.env
+.env.*
+*.p8
+*.p12
+*.mobileprovision
+*.cer
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# Xcode
+xcuserdata/
+DerivedData/
+build/
+*.xcuserstate
+
+# macOS
+.DS_Store
+
+# Local preview config for Claude Code
+**/.claude/launch.json

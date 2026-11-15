@@ -1,0 +1,10 @@
+# The exact versions behind the saved notebook outputs (Python 3.12). Other recent versions run the notebook too,
+# but scikit-learn's gradient boosting can shift Model D's numbers a little: with scikit-learn 1.6.1 (checked on
+# 2023 only) the rank match was +0.42 instead of +0.45 and the flagged road-days of the alert rule then in use (it
+# also fired on dry days) +38.0% instead of +38.7%, and every verdict was the same.
+pandas==3.1.1
+numpy==2.5.4
+scikit-learn==1.9.1
+scipy==1.18.1
+matplotlib==3.11.2
+requests==2.34.2
