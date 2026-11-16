@@ -98,10 +98,16 @@ A, so better inputs (hourly or local weather) still have room. The useful part i
 
 ## Run it
 
-**In Google Colab:** click the badge above, then Runtime → Run all. The notebook downloads TxDOT's crash file and
-NOAA's weather itself (a few minutes), then runs top to bottom (about 4 to 5 minutes on our laptop; Colab's free machines are slower, and our pass line is
-under 10 minutes). No API key is needed. The 2024 final exam reruns
-because `notebook/OPEN_2024.flag` is committed.
+**The notebook's outputs are saved,** so every result can be read here on GitHub without running anything. To rerun
+it, use a laptop (below): a fresh clone of this repo ran top to bottom on ours in 3.5 minutes, downloads included,
+and printed exactly the saved outputs. It peaked at about 10.7 GB of memory, so a
+machine with 16 GB is safest. It downloads TxDOT's crash file and
+NOAA's weather itself, needs no API key, and reruns the 2024 final exam because `notebook/OPEN_2024.flag` is committed.
+
+**Google Colab's free machine isn't enough.** We tried Run all there on Nov 15: with Colab's library versions
+(pandas 2.2.3, scikit-learn 1.6.1) the notebook peaks at about 12.4 GB of memory, and the run stopped at Step 10
+(Model D, road by road), most likely out of memory. The badge above still opens the notebook to read. A Colab
+runtime with more memory should get through it, but we haven't tested one.
 
 **On a Mac or Linux** (needs Python 3.12: check with `python3 --version`; on Windows, type `python` instead of `python3` and `.venv\Scripts\` instead of `.venv/bin/`). Clone the repo rather than downloading the ZIP, because one test uses git:
 ```bash
@@ -135,6 +141,9 @@ gradient boosting can shift Model D's numbers slightly (with scikit-learn 1.6.1,
   crash records), map lines in which every point is the average position of at least 5 crashes, and, for the 5 busiest
   roads only, a coarse "what really happened" level.
 - **Weather:** [NOAA GHCN-Daily, DFW Airport (USW00003927)](https://www.ncei.noaa.gov/data/global-historical-climatology-network-daily/access/USW00003927.csv).
+- **The app:** asks before it uses location, compares it with the day's flagged roads on the phone, and never stores
+  or sends it. Our code makes no network calls (the map is Apple's MapKit), and the only thing the app saves is the
+  day you picked.
 
 ## Limits
 
@@ -153,7 +162,9 @@ gradient boosting can shift Model D's numbers slightly (with scikit-learn 1.6.1,
   2024 its flagged road-days ran +31.0% above normal (2023: +43.1%), against +8.2% for warning on every road whenever
   it rains. That year the weather beyond rain added a real gain, but the rule was fixed before 2024 opened, and we
   didn't change it.
-- iPhone only; judges can't install the app this weekend, so it's shown in the video.
+- iPhone only; judges can't install the app this weekend, so it's shown in the video, on a simulated drive.
+- The app hasn't been tested in a real car yet, and its alert arriving on the lock screen and over Apple Maps was
+  checked in the Simulator, not yet on a real phone.
 
 ## Credits
 
@@ -162,8 +173,11 @@ gradient boosting can shift Model D's numbers slightly (with scikit-learn 1.6.1,
 - **Research behind the claims:** UC Berkeley (rain after a dry spell, 2003); Texas A&M Transportation Institute
   (asphalt bleeding and flushing).
 - **Libraries:** pandas, NumPy, scikit-learn, SciPy, matplotlib, requests, Jupyter, jupytext, pytest. The app uses
-  Apple's SwiftUI, MapKit, Core Location, UserNotifications, Observation, Core Text and UIKit, and the
-  Archivo typeface (SIL Open Font License).
+  Apple's SwiftUI, MapKit, Core Location, UserNotifications, Observation, Core Text and UIKit, the
+  Archivo typeface (SIL Open Font License) and SF Symbols for its in-app symbols.
+- **Filmed drive:** the drive in the video is the iOS Simulator's location simulation along a path from Apple Maps
+  driving directions, made by a dev script (`app/tools/video-route.swift`) that is not part of the app; the app gets it
+  as ordinary location updates.
 - **AI tools:** Claude (planning chat) reviewed the idea, found and checked the data, and wrote the download script
   and the plan. Claude Code wrote most of the notebook code, the tests, the viewer and the first drafts of the docs,
   and ran the code audits and the research and fact-checking agents behind the road-chemistry background sheet

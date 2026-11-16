@@ -30,3 +30,7 @@ build/
 
 # Local preview config for Claude Code
 **/.claude/launch.json
+
+# Brainstorm mockups (local only)
+.superpowers/
+.worktrees/
